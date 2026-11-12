@@ -147,7 +147,15 @@ assert post("/hook", {"hook_event_name": "PreToolUse", "tool_name": "Read", "too
 assert post("/hook", {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_response": {}}) == {}
 assert post("/hook", {"hook_event_name": "PreToolUse", "tool_name": "mcp__docs__search", "tool_input": {}}) == {}
 page = urllib.request.urlopen(base + "/").read().decode()
-assert "LLM Checker" in page
+assert "WireClaude" in page
+assert "WireClaude" in urllib.request.urlopen(base + "/cockpit").read().decode()
+assert urllib.request.urlopen(base + "/cockpit/main.js").status == 200
+for path in ("/cockpit/../server.py", "/cockpit/missing.js", "/page.html"):
+    try:
+        urllib.request.urlopen(base + path)
+        raise AssertionError(path + " must not be served")
+    except urllib.error.HTTPError as e:
+        assert e.code == 404, path
 # Two page functions with the same name: the later silently replaces the earlier and breaks every card.
 import collections
 import re
@@ -246,8 +254,8 @@ assert "phone number" in kinds("call (555) 123-4567 or +49 30 1234 5678")
 assert "IBAN" in kinds("DE89 3704 0044 0532 0130 00")
 
 # Claude never gets to read the checker's own folder, whichever tool it uses.
-for call in ({"tool_name": "Read", "tool_input": {"file_path": "/Users/x/.llm-checker/watchlist.txt"}},
-             {"tool_name": "Bash", "tool_input": {"command": "cat ~/.llm-checker/watchlist.txt"}}):
+for call in ({"tool_name": "Read", "tool_input": {"file_path": "/Users/x/.wireclaude/watchlist.txt"}},
+             {"tool_name": "Bash", "tool_input": {"command": "cat ~/.wireclaude/watchlist.txt"}}):
     out = post("/hook", {"hook_event_name": "PreToolUse", **call})
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny", out
 # Nor the buffer file of a running command.

@@ -1,4 +1,4 @@
-"""LLM Checker: an approval page for Claude Code hooks, on macOS, Linux and Windows.
+"""WireClaude: an approval page for Claude Code hooks, on macOS, Linux and Windows.
 
 Tool calls and tool results wait here until they are sent or blocked in the browser
 at http://127.0.0.1:1308. A Bash call is first sent back to Claude Code with a request
@@ -23,7 +23,7 @@ from pathlib import Path
 import access
 
 PORT = 1308  # also in start.py and hooks/hooks.json
-REJECTED = "[withheld by LLM Checker]"
+REJECTED = "[withheld by WireClaude]"
 
 # How Claude Code should explain a Bash command. Editable on the page; saved in STYLE_FILE.
 # Language rules after the STE80 style of github.com/Dodaios/ste80-humanizer (MIT):
@@ -41,7 +41,7 @@ DEFAULT_STYLE = (
     "- Name each file and folder the command reads. State which content will go to Claude.\n"
     "- Name websites that receive data and files that the command deletes or overwrites."
 )
-DATA = Path.home() / ".llm-checker"  # survives plugin updates, which replace the plugin folder
+DATA = Path.home() / ".wireclaude"  # survives plugin updates, which replace the plugin folder
 STYLE_FILE = DATA / "explain-style.txt"
 TOKEN_FILE = DATA / "server.token"  # lets start.py stop this server when a newer version starts
 TOKEN = secrets.token_hex(16)
@@ -157,14 +157,14 @@ def scrub(value, key=None):
     return value
 
 
-PRIVATE = (".llm-checker",)  # tool calls that mention the checker's own data folder are refused
+PRIVATE = (".wireclaude",)  # tool calls that mention the checker's own data folder are refused
 
 PRIVATE += (".lc-output",)  # the buffer files of running Bash commands, see BASH_PREFIX
 
 FAILURE_STOP = "You blocked a tool error. Claude still has its text: rewind past this step before sending another message."
 FAILURE_NOTE = ("Claude Code cannot hold back or clean an error: Claude receives this text whatever you choose. "
                 "Block tells Claude to ignore it and stop. Rewind past this step to remove it.")
-FAILURE_REASON = "The user blocked this error in LLM Checker. Do not use or repeat its content. Stop and wait for the user."
+FAILURE_REASON = "The user blocked this error in WireClaude. Do not use or repeat its content. Stop and wait for the user."
 
 
 def style():
@@ -187,7 +187,7 @@ def protected(root):
 # prints nothing, so its error carries no output. Without a buffer file the command does not run.
 # The file sits in the command's folder (the sandbox allows writing there), else in the temp folder.
 # ponytail: a command that sets its own EXIT trap replaces this trap, so its output is never printed
-BASH_PREFIX = r'''__lcf="$PWD/NAME"; { : > "$__lcf"; } 2>/dev/null || __lcf="${TMPDIR:-/tmp}/NAME"; { : > "$__lcf"; } 2>/dev/null || { echo "LLM Checker: no buffer file could be created, so the command did not run."; exit 0; }
+BASH_PREFIX = r'''__lcf="$PWD/NAME"; { : > "$__lcf"; } 2>/dev/null || __lcf="${TMPDIR:-/tmp}/NAME"; { : > "$__lcf"; } 2>/dev/null || { echo "WireClaude: no buffer file could be created, so the command did not run."; exit 0; }
 trap '__lc=$?; exec 1>&8 2>&9; cat "$__lcf"; rm -f "$__lcf"; [ "$__lc" -eq 0 ] || echo "Exit code $__lc"; exit 0' EXIT
 trap 'trap - EXIT; rm -f "$__lcf"; exit 143' TERM INT HUP
 exec 8>&1 9>&2 >"$__lcf" 2>&1
@@ -285,7 +285,7 @@ last_open = [0.0]
 
 
 def open_page():
-    webbrowser.open(f"http://127.0.0.1:{PORT}")
+    webbrowser.open(f"http://127.0.0.1:{PORT}{last_view[0]}")
 
 
 def ensure_page_open():
@@ -342,9 +342,9 @@ def answer(hook, approve, request=None, clean=False):
     if approve and not request:
         return {}
     if event == "UserPromptSubmit":
-        return {"decision": "block", "reason": "The user blocked this item in LLM Checker."}
+        return {"decision": "block", "reason": "The user blocked this item in WireClaude."}
     if event == "PreToolUse":
-        reason = request or "The user blocked this tool call in LLM Checker."
+        reason = request or "The user blocked this tool call in WireClaude."
         return {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
@@ -361,7 +361,7 @@ def answer(hook, approve, request=None, clean=False):
         # Claude Code offers no way to replace or withhold error text, and ignores "continue" for this event,
         # so the error always reaches Claude; "block" adds a reason telling Claude to ignore it.
         return {"decision": "block", "reason": FAILURE_REASON, "continue": False, "stopReason": FAILURE_STOP}
-    return {"decision": "block", "reason": "The user blocked this item in LLM Checker."}
+    return {"decision": "block", "reason": "The user blocked this item in WireClaude."}
 
 
 def handle_hook(hook):
@@ -373,7 +373,7 @@ def handle_hook(hook):
     # ponytail: plain text match; a command that builds the path (for example with wildcards) gets past it
     if event == "PreToolUse" and any(p in s for s in strings(hook.get("tool_input")) for p in PRIVATE):
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                       "permissionDecisionReason": "This request would expose private LLM Checker data."}}
+                                       "permissionDecisionReason": "This request would expose private WireClaude data."}}
     # MCP calls: only what comes back and goes to Claude waits, not the call itself.
     if (event, tool or None) in PASS_THROUGH or (event == "PreToolUse" and tool.startswith("mcp__")):
         return {}
@@ -478,8 +478,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, {"style": style(), "default": DEFAULT_STYLE})
         elif self.path == "/watchlist":
             self.send(200, {"watchlist": watchlist_text(), "detectors": [label for label, _ in DETECTORS]})
-        elif self.path == "/":
-            self.send(200, PAGE.read_text(encoding="utf-8"), "text/html; charset=utf-8")
+        elif (file := page_file(self.path)) is not None:
+            if file.suffix == ".html":
+                last_view[0] = self.path  # a page opened later shows the view used last
+            self.send(200, file.read_text(encoding="utf-8"), TYPES[file.suffix])
         else:
             self.send(404, {})
 
@@ -548,10 +550,24 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-PAGE = Path(__file__).with_name("page.html")  # read on every request, so page edits need no restart
+# Two views of the same data: the swipe page, and the cockpit game with its own modules in cockpit/.
+# Files are read on every request, so page edits need no restart.
+HERE = Path(__file__).parent
+TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+last_view = ["/"]
+
+
+def page_file(path):
+    """The file for a page path: only page.html, cockpit/index.html and the .js files directly in cockpit/."""
+    if path == "/":
+        return HERE / "page.html"
+    if path == "/cockpit":
+        return HERE / "cockpit" / "index.html"
+    modules = {"/cockpit/" + f.name: f for f in (HERE / "cockpit").glob("*.js")}
+    return modules.get(path)
 
 if __name__ == "__main__":
-    print(f"LLM Checker {VERSION}: http://127.0.0.1:{PORT}")
+    print(f"WireClaude {VERSION}: http://127.0.0.1:{PORT}")
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(TOKEN, encoding="utf-8")  # for start.py; Claude is denied this folder
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)

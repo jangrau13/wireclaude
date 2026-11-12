@@ -2,7 +2,8 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Checker</title>
+<title>WireClaude</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231f3a5f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6h3c5 0 4 12 9 12h2'/%3E%3Crect x='16' y='15' width='3' height='6'/%3E%3Cpath d='M19 16.5h3M19 19.5h3'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin="anonymous"
       href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.12.0/build/styles/github.min.css"
       integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L">
@@ -166,6 +167,9 @@
   #power { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 2px; padding: 0.35em 0.9em;
            cursor: pointer; font: inherit; font-size: 0.8em; }
   #power:hover { border-color: var(--ink); }
+  #view { border: 1px solid var(--line); color: var(--ink); border-radius: 2px; padding: 0.35em 0.9em;
+          font-size: 0.8em; text-decoration: none; white-space: nowrap; }
+  #view:hover { border-color: var(--ink); }
   #cautionLabel { display: flex; align-items: center; gap: 0.35em; font-size: 0.8em; font-weight: 600; cursor: pointer;
                   white-space: nowrap; }
   #bashBefore { width: 1.05em; height: 1.05em; accent-color: var(--brand); cursor: pointer; }
@@ -227,6 +231,13 @@
   #style .detectors { font-size: 0.85em; color: #555; }
   .explain { background: #eef2f7; border-left-color: var(--brand); }
   .explain.warn-note { background: #fff8e8; border-left: 4px dashed #8a6d1d; }
+  .tabs button { border-radius: 0; border: none; border-bottom: 2px solid transparent; }
+  .tabs button.on { background: none; border-bottom-color: var(--brand); color: var(--brand); }
+  .viewer, .editor, pre.plain, img, iframe.pdf { border-radius: 2px; }
+  #history > details { border-radius: 2px; border: 1px solid var(--line); border-left: 5px var(--s, solid) var(--c); }
+  .sent { --c: var(--ok); } .blocked { --c: var(--bad); --s: dashed; } .auto { --c: #999; --s: dotted; }
+  #saveStyle { background: var(--brand); border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85em; }
+  #resetStyle { border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85em; }
   #controls { gap: 1em; }
   #controls button, #star { width: 58px !important; height: 58px !important; border-radius: 2px; border: 1px solid var(--line);
                             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12); background: #fff; font-size: 1.6em !important; }
@@ -238,13 +249,6 @@
                    color: var(--bad); }
   .stamp { border-radius: 2px; } .stamp.send { color: var(--ok); } .stamp.block { color: var(--bad); border-style: dashed; }
   .stamp.trust { color: var(--brand); border-style: double; border-width: 6px; }
-  .tabs button { border-radius: 0; border: none; border-bottom: 2px solid transparent; }
-  .tabs button.on { background: none; border-bottom-color: var(--brand); color: var(--brand); }
-  .viewer, .editor, pre.plain, img, iframe.pdf { border-radius: 2px; }
-  #history > details { border-radius: 2px; border: 1px solid var(--line); border-left: 5px var(--s, solid) var(--c); }
-  .sent { --c: var(--ok); } .blocked { --c: var(--bad); --s: dashed; } .auto { --c: #999; --s: dotted; }
-  #saveStyle { background: var(--brand); border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85em; }
-  #resetStyle { border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85em; }
   #styleText { border-radius: 2px; } #styleText:focus { outline-color: var(--brand); }
   .pill { border-radius: 2px; }
   .term { border-radius: 2px; }
@@ -269,8 +273,9 @@
 
 <header class="topbar">
   <div class="product">
-    <div class="monogram" aria-hidden="true">LC</div>
-    <div><h1>LLM Checker</h1><div class="sub">Review data before Claude receives it</div></div>
+    <div class="monogram" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h3c5 0 4 12 9 12h2"/><rect x="16" y="15" width="3" height="6"/><path d="M19 16.5h3M19 19.5h3"/></svg></div>
+    <div><h1>WireClaude</h1><div class="sub">Review data before Claude receives it</div></div>
   </div>
   <dl class="figures">
     <div><dt>Waiting</dt><dd id="count">0</dd></div>
@@ -284,6 +289,7 @@
       <input type="checkbox" id="bashBefore"> Cautiousness high</label>
     <span id="statusLabel">Monitoring on</span>
     <button id="power" title="Stop or resume checks">Turn off</button>
+    <a id="view" href="/cockpit" title="Open the cockpit view">Cockpit</a>
   </div>
 </header>
 <p id="offBanner" hidden>Checks are off. Items go to Claude immediately and remain in the history.</p>
@@ -309,9 +315,9 @@
     <span id="styleMsg" class="note"></span>
   </div>
   <h2 class="second">Private watch list</h2>
-  <p class="note">LLM Checker compares every result with this local list before sending it to Claude. Add one
+  <p class="note">WireClaude compares every result with this local list before sending it to Claude. Add one
     name or project code per line. Prefix regular expressions with <code>re:</code> and comments with #.
-    The list is stored in ~/.llm-checker.</p>
+    The list is stored in ~/.wireclaude.</p>
   <textarea id="watchText" spellcheck="false" placeholder="Anna Huber&#10;K_COLD&#10;re:PRJ-\d{4}"></textarea>
   <div class="row-buttons">
     <button id="saveWatch">Save</button>
@@ -630,7 +636,7 @@ function terminal(item) {
   const failed = item.event === "PostToolUseFailure";
   if (failed) chips.push(["failed", "bad"]);
   else if (!pre) {
-    const exit = /(?:^|\n)Exit code (\d+)\s*$/.exec(out.stdout || "");  // added by LLM Checker to failing commands
+    const exit = /(?:^|\n)Exit code (\d+)\s*$/.exec(out.stdout || "");  // added by WireClaude to failing commands
     if (out.interrupted) chips.push(["interrupted", "bad"]);
     else if (exit) chips.push(["failed with exit code " + exit[1], "bad"]);
     else chips.push([out.stderr ? "finished with error output" : "finished", out.stderr ? "bad" : "good"]);
@@ -692,50 +698,10 @@ async function decide(approve, trust = false, unchanged = false) {
   if (approve && !unchanged && isError(current)) return;
   deciding = true;
   const clean = approve && !unchanged && !!current.cleanable;
-  const card = deck.querySelector(".card");
-  card.style.transform = trust ? "translateY(-120vh)"
-                               : `translateX(${approve ? 150 : -150}vw) rotate(${approve ? 30 : -30}deg)`;
+  deck.querySelector(".card").style.transform = trust ? "translateY(-120vh)"
+    : `translateX(${approve ? 150 : -150}vw) rotate(${approve ? 30 : -30}deg)`;
   await fetch("/decide", {method: "POST", body: JSON.stringify({id: current.id, approve, trust, clean})});
   setTimeout(() => { deciding = false; current = null; refresh(); if (trust) loadAccess(); }, 250);
-}
-
-function makeCard(item) {
-  const card = el("div", "card kind-" + reviewKind(item));
-  const send = el("div", "stamp send", item.cleanable ? "SEND CLEANED" : "SEND"), block = el("div", "stamp block", "BLOCK");
-  card.append(header(item), body(item), send, block);
-
-  const trustStamp = el("div", "stamp trust", "TRUST SITE");
-  if (item.site) card.append(trustStamp);
-
-  let startX = null, startY = 0, dx = 0, dy = 0;
-  card.addEventListener("pointerdown", e => {
-    if (e.button !== 0 || e.target.closest("pre, iframe, img, table, summary, button, .val, .explain, .editor")) return;
-    startX = e.clientX; startY = e.clientY; dx = dy = 0;
-    card.classList.add("dragging");
-    card.setPointerCapture(e.pointerId);
-  });
-  card.addEventListener("pointermove", e => {
-    if (startX === null) return;
-    dx = e.clientX - startX;
-    dy = item.site ? Math.min(0, e.clientY - startY) : 0;  // upward drag only matters for websites
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx / 20}deg)`;
-    const up = -dy > Math.abs(dx);
-    send.style.opacity = up || isError(item) ? 0 : Math.max(0, dx / 120);
-    block.style.opacity = up ? 0 : Math.max(0, -dx / 120);
-    trustStamp.style.opacity = up ? -dy / 120 : 0;
-  });
-  const end = () => {
-    if (startX === null) return;
-    startX = null;
-    card.classList.remove("dragging");
-    if (-dy > 120 && -dy > Math.abs(dx)) return decide(true, true);
-    if (dx < -120 || dx > 120 && !isError(item)) return decide(dx > 0);  // errors do not send on a swipe
-    card.style.transform = "";
-    send.style.opacity = block.style.opacity = trustStamp.style.opacity = 0;
-  };
-  card.addEventListener("pointerup", end);
-  card.addEventListener("pointercancel", end);
-  return card;
 }
 
 const star = document.getElementById("star");
@@ -859,7 +825,7 @@ styleText.addEventListener("input", () => { styleMsg.textContent = "Not saved ye
 const watchText = document.getElementById("watchText"), watchMsg = document.getElementById("watchMsg");
 fetch("/watchlist").then(r => r.json()).then(w => {
   watchText.value = w.watchlist;
-  document.getElementById("detectors").textContent = "LLM Checker also scans for " + w.detectors.join(", ") + ".";
+  document.getElementById("detectors").textContent = "WireClaude also scans for " + w.detectors.join(", ") + ".";
 });
 document.getElementById("saveWatch").onclick = async () => {
   const r = await fetch("/watchlist", {method: "POST", body: JSON.stringify({watchlist: watchText.value})});
@@ -868,7 +834,6 @@ document.getElementById("saveWatch").onclick = async () => {
   setTimeout(() => { watchMsg.textContent = ""; }, 2000);
 };
 watchText.addEventListener("input", () => { watchMsg.textContent = "Not saved yet"; });
-
 // ---- polling ----
 let historyKey = "", queueKey = "";
 async function refresh() {
@@ -879,7 +844,7 @@ async function refresh() {
   document.getElementById("count").textContent = n;
   for (const [id, key] of [["statSent", "sent"], ["statBlocked", "blocked"], ["statAuto", "auto"]])
     document.getElementById(id).textContent = (state.totals || {})[key] ?? 0;
-  document.title = (state.paused ? "[OFF] " : "") + (n ? "(" + n + ") LLM Checker" : "LLM Checker");
+  document.title = (state.paused ? "[OFF] " : "") + (n ? "(" + n + ") WireClaude" : "WireClaude");
   power.textContent = state.paused ? "Turn on" : "Turn off";
   bashBefore.checked = state.bash_before;
   const label = document.getElementById("statusLabel");
@@ -944,6 +909,46 @@ async function refresh() {
     }));
   }
 }
+
+function makeCard(item) {
+  const card = el("div", "card kind-" + reviewKind(item));
+  const send = el("div", "stamp send", item.cleanable ? "SEND CLEANED" : "SEND"), block = el("div", "stamp block", "BLOCK");
+  card.append(header(item), body(item), send, block);
+
+  const trustStamp = el("div", "stamp trust", "TRUST SITE");
+  if (item.site) card.append(trustStamp);
+
+  let startX = null, startY = 0, dx = 0, dy = 0;
+  card.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || e.target.closest("pre, iframe, img, table, summary, button, .val, .explain, .editor")) return;
+    startX = e.clientX; startY = e.clientY; dx = dy = 0;
+    card.classList.add("dragging");
+    card.setPointerCapture(e.pointerId);
+  });
+  card.addEventListener("pointermove", e => {
+    if (startX === null) return;
+    dx = e.clientX - startX;
+    dy = item.site ? Math.min(0, e.clientY - startY) : 0;  // upward drag only matters for websites
+    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx / 20}deg)`;
+    const up = -dy > Math.abs(dx);
+    send.style.opacity = up || isError(item) ? 0 : Math.max(0, dx / 120);
+    block.style.opacity = up ? 0 : Math.max(0, -dx / 120);
+    trustStamp.style.opacity = up ? -dy / 120 : 0;
+  });
+  const end = () => {
+    if (startX === null) return;
+    startX = null;
+    card.classList.remove("dragging");
+    if (-dy > 120 && -dy > Math.abs(dx)) return decide(true, true);
+    if (dx < -120 || dx > 120 && !isError(item)) return decide(dx > 0);  // errors do not send on a swipe
+    card.style.transform = "";
+    send.style.opacity = block.style.opacity = trustStamp.style.opacity = 0;
+  };
+  card.addEventListener("pointerup", end);
+  card.addEventListener("pointercancel", end);
+  return card;
+}
+
 setInterval(refresh, 1000);
 refresh();
 </script>

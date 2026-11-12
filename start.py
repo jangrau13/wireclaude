@@ -1,4 +1,4 @@
-"""Start the LLM Checker in the background, unless it already runs.
+"""Start WireClaude in the background, unless it already runs.
 
 Called by the plugin's SessionStart hook, so nobody needs a second terminal. The server
 keeps running after Claude Code closes; the next session finds it and reuses it. When the
@@ -17,7 +17,7 @@ from pathlib import Path
 
 PORT = 1308  # also in server.py and hooks/hooks.json
 HERE = Path(__file__).resolve().parent
-DATA = Path.home() / ".llm-checker"
+DATA = Path.home() / ".wireclaude"
 
 
 VERSION = json.loads((HERE / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]

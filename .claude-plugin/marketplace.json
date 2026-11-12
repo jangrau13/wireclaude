@@ -1,8 +1,8 @@
 {
-  "name": "llm-checker",
+  "name": "wireclaude",
   "owner": { "name": "Jan Grau" },
-  "description": "LLM Checker: see and approve what Claude Code sends to Claude",
+  "description": "WireClaude: see and approve what Claude Code sends to Claude",
   "plugins": [
-    { "name": "llm-checker", "source": "./" }
+    { "name": "wireclaude", "source": "./" }
   ]
 }
