@@ -260,9 +260,9 @@ export class Cabin {
     fms.add(fmsScreen);
     this.mounts.fms = fmsScreen;
     this.mounts.fmsUnit = fms;
-    for (let i = 0; i < 6; i++) for (const s of [-1, 1]) {  // line select keys; the bottom row is <DFLT and SAVE>
+    for (let i = 0; i < 6; i++) for (const s of [-1, 1]) {  // line select keys: routes, or <DFLT and SAVE> at the bottom
       const b = keycap(0.014, 0.009);
-      b.onPress = i === 5 ? () => displays.fms.press(s < 0 ? "DFLT" : "SAVE") : () => {};
+      b.onPress = () => displays.fms.lsk(s, i);
       place(b, fms, s * 0.08, 0.1 - i * 0.0165, 0.006);
     }
     actions.fmsKeys.forEach((row, r) => row.forEach((label, i) => {

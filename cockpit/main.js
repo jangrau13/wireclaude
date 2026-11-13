@@ -7,7 +7,7 @@ import {ReviewDisplay} from "./review.js";
 import {Eicas, NavDisplay, Standby, messages} from "./instruments.js";
 import {Fms, FMS_KEYS} from "./fms.js";
 import {SideDisplay} from "./side.js";
-import {World} from "./world.js";
+import {World, ROUTES, directRoute, destPoint, bearingOf, distanceOf, FINAL, ROLLOUT} from "./world.js";
 import {Cabin, cabinEnvironment} from "./cabin.js";
 import {Hud} from "./hud.js";
 
@@ -31,7 +31,7 @@ renderer.domElement.tabIndex = 0;
 
 const scene = new THREE.Scene(), aircraft = new THREE.Group();
 scene.add(aircraft);
-const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 60000);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 1.5e6);  // far enough for the map to the horizon at cruise
 aircraft.add(camera);
 const world = new World(scene, aircraft);
 const hud = new Hud();
@@ -74,7 +74,7 @@ const VIEWS = {
   fms: {mesh: cabin.mounts.fmsUnit, w: 0.21, h: 0.3, down: 0.03},
   side: {mesh: cabin.mounts.side, w: 0.36, h: 0.47, down: 0.026},
 };
-let view = "panel", from = null, to = null, blend = 1;
+let view = "panel", from = null, to = null, blend = 1, routeChosen = false;
 function pose(name) {
   const v = VIEWS[name], m = new THREE.Matrix4();
   if (v.eye) return {pos: v.eye.clone(), quat: new THREE.Quaternion().setFromRotationMatrix(m.lookAt(v.eye, v.look, new THREE.Vector3(0, 1, 0)))};
@@ -89,6 +89,7 @@ function pose(name) {
   return {pos: eye, quat: new THREE.Quaternion().setFromRotationMatrix(m.lookAt(eye, center, up))};
 }
 function setView(name, instant = false) {
+  if (name !== "fms") routeChosen = true;  // leaving the start prompt keeps the route
   from = {pos: camera.position.clone(), quat: camera.quaternion.clone()};
   view = name;
   to = pose(name);
@@ -100,7 +101,7 @@ function setView(name, instant = false) {
   displays.fms.dirty = true;
   for (const [k, b] of [["fms", B.fms], ["side", B.side], ["zoom", B.zoom]]) b.set({active: view === k});
 }
-function toggleZoom() { setView(view === "zoom" ? "panel" : "zoom"); }
+function toggleZoom() { autoZoomed = false; setView(view === "zoom" ? "panel" : "zoom"); }
 
 // Each display's canvas follows its size on screen, so text is sharp at every distance.
 function fitDisplays() {
@@ -129,11 +130,131 @@ function resize() {
 }
 addEventListener("resize", resize);
 resize();
+// ---- routes: chosen on the FMS at the start, and with R or the ROUTE key at any time ----
+// The flight in progress is stored as its plan (runways, waypoints, departure time). Its position
+// follows from the clock, so a flight chosen in the morning lands in the evening even across reloads
+// and closed tabs.
+const fms = displays.fms, now = () => performance.now() / 1000;
+const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+const saved = read("flight", null), resumed = saved && Array.isArray(saved.cities) ? saved : null;
+let storedPlan = null;
+fms.routes = ROUTES;
+world.onLand = entry => {  // a finished flight goes into the logbook once
+  const log = read("logbook", []);
+  if (!log.some(e => e.departed === entry.departed)) {
+    log.push(entry);
+    localStorage.setItem("logbook", JSON.stringify(log));
+    hud.notice("ARRIVED IN " + entry.to + ": " + entry.route + ", " + entry.km + " KM. LOGGED ON THE SIDE DISPLAY", C.green, now(), 12);
+  }
+  displays.side.setLogbook(log);
+};
+displays.side.setLogbook(read("logbook", []));
+world.onArrive = (city, next) => hud.notice("OVER " + city + ", NEXT " + next + ". R CHANGES THE ROUTE", C.cyan, now(), 6);
+const feet = m => Math.round(m * 3.281 / 100) * 100;
+world.onPhase = phase => {
+  const text = {
+    TAKEOFF: "TAKEOFF FROM " + world.cities[0][0], CLIMB: "CLIMBING TO " + feet(world.plan.alt) + " FT",
+    CRUISE: "CRUISING AT " + feet(world.alt) + " FT TO " + world.destination, DESCENT: "DESCENDING INTO " + world.destination,
+    APPROACH: "FINAL APPROACH: " + world.cities.at(-2)[0], LANDING: "TOUCHDOWN IN " + world.destination,
+  }[phase];
+  if (text) hud.notice(text, C.cyan, now(), 6);
+};
+if (resumed) { world.load(resumed); storedPlan = resumed; fms.route = resumed.route ?? -1; }
+else world.park(ROUTES[0].cities[0][0], ROUTES[0].cities[0][1], ROUTES[0].cities[0][2]);  // before the first flight
+fms.flying = world.parked ? "" : world.routeName + ", NEXT " + world.nextName;
+fms.onContinue = () => setView("panel");
+fms.onRoute = i => { fms.route = i; plan(ROUTES[i], i); };
+
+// ---- flight planning: real runways from OpenStreetMap, and no shortcuts ----
+// The very first flight starts at its origin airport. After that, a flight departs from the airport
+// where the aircraft stands (over the route's origin, if that is somewhere else); in the air, it
+// leaves the present position for the route's next waypoints.
+const deg = Math.PI / 180, wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+async function runway(place, want, radius) {  // the runway near [lat, lon] best lined up with direction want
+  const number = b => String(Math.round(((b / deg) % 360 + 360) % 360 / 10) % 36 || 36).padStart(2, "0");
+  const synthetic = () => ({name: number(want), from: destPoint(place, want + Math.PI, 1500), to: destPoint(place, want, 1500), bearing: want, len: 3000});
+  try {
+    const q = "[out:json][timeout:10];way[\"aeroway\"=\"runway\"](around:" + radius + "," + place[0] + "," + place[1] + ");out geom;";
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 9000);
+    const data = await (await fetch("https://overpass-api.de/api/interpreter", {method: "POST", body: "data=" + encodeURIComponent(q), signal: stop.signal})).json();
+    const ways = data.elements.filter(e => e.geometry && e.geometry.length > 1).map(e => ({
+      a: [e.geometry[0].lat, e.geometry[0].lon], b: [e.geometry.at(-1).lat, e.geometry.at(-1).lon], ref: (e.tags && e.tags.ref) || ""}));
+    if (!ways.length) return synthetic();
+    const mid = w => [(w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2];
+    const nearest = ways.reduce((m, w) => (distanceOf(place, mid(w)) < distanceOf(place, mid(m)) ? w : m));
+    const best = ways.filter(w => distanceOf(mid(w), mid(nearest)) < 6000)  // runways of the nearest airport
+      .flatMap(w => [[w.a, w.b, w.ref], [w.b, w.a, w.ref]]).map(([from, to, ref]) => ({from, to, ref, bearing: bearingOf(from, to)}))
+      .reduce((m, c) => (Math.abs(wrapAngle(c.bearing - want)) < Math.abs(wrapAngle(m.bearing - want)) ? c : m));
+    // The OSM name uses magnetic headings; take the part of "04L/22R" closest to the true direction.
+    const part = best.ref.split("/").map(p => [p, Math.abs(wrapAngle(parseInt(p, 10) * 10 * deg - best.bearing))]).sort((x, y) => x[1] - y[1])[0];
+    return {name: part && part[1] < 35 * deg ? part[0] : number(best.bearing), from: best.from, to: best.to, bearing: best.bearing,
+            len: distanceOf(best.from, best.to)};
+  } catch {
+    return synthetic();
+  }
+}
+let planning = 0;
+async function plan(route, index = null) {
+  const ticket = ++planning, direct = index === null, ll = p => [p[1], p[2]];
+  const firstFlight = !world.plan.runways, airborne = !world.parked && world.phase !== "TAKEOFF" && world.alt > 1;
+  const origin = route.cities[0], dest = route.cities.at(-1);
+  let mid = route.cities.slice(1, -1), depAt = null, depName = origin[0];
+  if (!airborne && firstFlight) depAt = ll(origin);
+  else if (!airborne) {
+    depAt = [world.lat, world.lon];
+    depName = world.destination;
+    if (distanceOf(depAt, ll(origin)) > 30000) mid = [origin, ...mid];  // fly to the route's origin first
+  }
+  routeChosen = true;
+  setView("panel");
+  hud.notice(airborne ? "NEW ROUTE " + route.name + ": LOOKING UP THE ARRIVAL RUNWAY" : "ROUTE " + route.name + ": LOOKING UP RUNWAYS", C.cyan, now(), 8);
+  const here = airborne ? [world.lat, world.lon] : depAt, after = mid.length ? ll(mid[0]) : ll(dest);
+  const dep = airborne ? null : await runway(depAt, bearingOf(depAt, after), firstFlight && !direct ? 6000 : 30000);
+  const arr = await runway(ll(dest), bearingOf(mid.length ? ll(mid.at(-1)) : here, ll(dest)), direct ? 30000 : 6000);
+  if (ticket !== planning) return;  // a newer choice won
+  const cities = airborne ? [["PRESENT POSITION", world.lat, world.lon]]
+    : [["RWY " + dep.name + " " + depName, ...dep.from], ["CLIMB OUT", ...destPoint(dep.to, dep.bearing, 6000)]];
+  cities.push(...mid, ["FINAL " + arr.name, ...destPoint(arr.from, arr.bearing + Math.PI, FINAL)],
+              ["RWY " + arr.name + " " + dest[0], ...arr.from], [dest[0], ...destPoint(arr.from, arr.bearing, ROLLOUT)]);
+  world.load({route: index, name: route.name, alt: route.alt, speed: route.speed, cities,
+              start: airborne ? {alt: world.alt, speed: world.speed} : null, departed: Date.now(), runways: [dep, arr].filter(Boolean)});
+  hud.notice(airborne ? "NEW ROUTE " + route.name : "CLEARED FOR TAKEOFF, RUNWAY " + dep.name + ": " + route.name, C.green, now(), 8);
+}
+// DIRECT flights: places by name through OpenStreetMap's Nominatim search (a lookup each time a field
+// is set, well within its limit of a request a second), or typed as "lat lon".
+fms.geocode = async text => {
+  const m = /^\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)\s*$/.exec(text);
+  if (m) return [text.toUpperCase(), Number(m[1]), Number(m[2])];
+  const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=" + encodeURIComponent(text));
+  const [hit] = await r.json();
+  return hit ? [(hit.name || hit.display_name.split(",")[0]).toUpperCase(), Number(hit.lat), Number(hit.lon)] : null;
+};
+fms.describe = (from, to) => {
+  const r = directRoute(from, to), d = r.cities.slice(1).reduce((s, p, i) => {
+    const [, a, b] = r.cities[i], rad = Math.PI / 180;
+    return s + 6371 * Math.acos(Math.min(1, Math.sin(a * rad) * Math.sin(p[1] * rad) + Math.cos(a * rad) * Math.cos(p[1] * rad) * Math.cos((p[2] - b) * rad)));
+  }, 0), h = d * 1000 / r.speed / 3600;
+  return Math.round(d) + " KM  " + Math.floor(h) + "H" + String(Math.round(h % 1 * 60)).padStart(2, "0") + (r.alt > 5000 ? "  CRUISE" : "  LOW LEVEL");
+};
+fms.onDirect = (from, to) => { fms.route = -1; plan(directRoute(from, to)); };
+function askRoute() {
+  fms.page = "route";
+  fms.dirty = true;
+  setView("fms");
+}
+
 if (VIEWS[location.hash.slice(1)]) setView(location.hash.slice(1), true);  // /cockpit#fms opens a view directly
+else {  // ask for the route before take-off
+  fms.page = "route";
+  setView("fms", true);
+  hud.notice(resumed ? "IN FLIGHT: " + world.routeName + ". CONTINUE> OR ESC FLIES ON, OR CHOOSE A NEW ROUTE"
+                     : "CHOOSE A ROUTE: LEFT KEYS BESIDE THE FMS OR 1 TO 5; PREV AND NEXT FOR MORE", C.cyan, 0, 20);
+}
 
 // ---- data from the server ----
 let state = {pending: [], history: [], paused: false, bash_before: false, totals: {}};
-let current = null, deciding = false, historyKey = null, spokenKey = "", firstState = true;
+let current = null, deciding = false, historyKey = null, spokenKey = "", firstState = true, shownId = null, autoZoomed = false;
 
 function weather(next, paused) {
   const night = paused ? 1 : 0;
@@ -149,6 +270,15 @@ function apply(s) {
   const next = s.pending[0] || null, n = s.pending.length, t = s.totals || {};
   if (!deciding) current = next;
   review.show(current, n, s.paused);
+  // A new item zooms in from the seat; when the queue empties, the camera goes back to the seat.
+  // The FMS and side views are left alone, so typing or reading there is never interrupted.
+  const id = next && next.id;
+  // Wait for a camera move to finish, then zoom in on the next card; only from the seat or the zoom.
+  if (id !== shownId && blend >= 1 && (view === "panel" || view === "zoom")) {
+    if (next && view === "panel") { setView("zoom"); autoZoomed = true; }
+    else if (!next && view === "zoom" && autoZoomed) setView("panel");
+    shownId = id;
+  }
   const [wx, wxName] = weather(next, s.paused);
   if (firstState) world.snap(wx); else world.setTarget(wx);  // the first data sets the weather at once
   firstState = false;
@@ -200,6 +330,7 @@ async function decide(approve, trust = false, unchanged = false) {
   deciding = true;
   const text = !approve ? "BLOCKED" : trust ? "SENT, SITE TRUSTED" : unchanged ? "SENT ORIGINAL" : item.cleanable ? "SENT CLEANED" : "SENT";
   review.banner(text, approve ? C.green : C.red, clock);
+  if (view === "zoom" && autoZoomed) setView("panel");  // back to the seat; the next card zooms in again
   try {
     await post("/decide", {id: item.id, approve, trust, clean: approve && !unchanged && !!item.cleanable});
   } catch (e) {
@@ -272,7 +403,7 @@ addEventListener("keydown", e => {
     o: () => decide(true, false, true),
     PageDown: () => scrolled.wheel(900), PageUp: () => scrolled.wheel(-900), " ": () => scrolled.wheel(900),
     Home: () => scrolled.wheel(-1e9), End: () => scrolled.wheel(1e9),
-    v: () => review.cycleView(), z: toggleZoom, f: () => setView("fms"), s: () => setView("side"),
+    v: () => review.cycleView(), z: toggleZoom, f: () => setView("fms"), s: () => setView("side"), r: askRoute,
     Escape: () => (hud.help.mesh.visible ? hud.toggleHelp() : setView("panel")),
     h: () => hud.toggleHelp(), "?": () => hud.toggleHelp(),
   }[key];
@@ -301,6 +432,15 @@ renderer.setAnimationLoop(ms => {
   displays.standby.pitch = pitch * 57.3;
   displays.nd.heading = world.heading;
   displays.nd.city = world.cityName;
+  displays.nd.next = world.nextName;
+  displays.nd.route = world.routeName;
+  displays.nd.flight = {speed: world.speed, alt: world.alt, left: world.left, to: world.destination, phase: world.phase,
+                        timeLeft: world.timeLeft};
+  if (world.plan !== storedPlan && !world.plan.parked) {  // a new flight: remember its plan for reloads
+    storedPlan = world.plan;
+    localStorage.setItem("flight", JSON.stringify(world.plan));
+  }
+  fms.flying = world.parked ? "" : world.routeName + ", NEXT " + world.nextName;
   if (to && blend < 1) {
     blend = Math.min(1, blend + dt / 0.55);
     const k = blend * blend * (3 - 2 * blend);

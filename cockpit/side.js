@@ -56,7 +56,7 @@ export class SideDisplay extends Display {
     this.history = [];
     this.selected = null;  // a history item shown in full
     this.docs = {};
-    this.scroll = {access: 0, history: 0, detail: 0};
+    this.scroll = {access: 0, history: 0, detail: 0, logbook: 0};
   }
 
   setAccess(a) { this.access = a; this.docs.access = new Doc(accessBlocks(a), () => { this.dirty = true; }); this.dirty = true; }
@@ -73,6 +73,17 @@ export class SideDisplay extends Display {
         {text: (item.agent ? "[" + item.agent + "] " : "") + item.title, size: SMALL},
       ]};
     }) : [{t: "p", runs: [{text: "Nothing decided yet.", color: C.dim}]}], () => { this.dirty = true; });
+    this.dirty = true;
+  }
+
+  // Flights completed, newest first, with departure and arrival times.
+  setLogbook(log) {
+    const time = ms => { const d = new Date(ms); return d.toLocaleDateString() + " " + d.toTimeString().slice(0, 5); };
+    this.docs.logbook = new Doc(log.length ? [...log].reverse().flatMap(e => [
+      {t: "p", runs: [{text: e.from + " - " + e.to, bold: true, color: C.green}, {text: "   " + e.km + " KM", color: C.grey, size: SMALL}]},
+      {t: "p", indent: 1, runs: [{text: "DEP " + time(e.departed) + "   ARR " + time(e.arrived), mono: true, size: SMALL, color: C.white}]},
+      {t: "gap", h: 8},
+    ]) : [{t: "p", runs: [{text: "No flights finished yet. Choose a route on the FMS.", color: C.dim}]}], () => { this.dirty = true; });
     this.dirty = true;
   }
 
@@ -93,10 +104,11 @@ export class SideDisplay extends Display {
   }
   wheel(dy) { this.scrollBy(dy); }
 
-  softLabels() { return ["ACCESS", "HISTORY", this.tab === "detail" ? "BACK" : "", "PAGE UP", "PAGE DOWN"]; }
+  softLabels() { return ["ACCESS", this.tab === "detail" ? "BACK" : "HISTORY", "LOGBOOK", "PAGE UP", "PAGE DOWN"]; }
   softKey(i) {
     if (i === 0) this.tab = "access";
-    else if (i === 1 || (i === 2 && this.tab === "detail")) this.tab = "history";
+    else if (i === 1) this.tab = "history";
+    else if (i === 2) this.tab = "logbook";
     else if (i === 3) this.scrollBy(-this.area.h * 0.9);
     else if (i === 4) this.scrollBy(this.area.h * 0.9);
     this.dirty = true;
@@ -114,7 +126,7 @@ export class SideDisplay extends Display {
   }
 
   draw(c) {
-    const names = {access: "CLAUDE CODE ACCESS", history: "HISTORY", detail: "HISTORY ITEM #" + (this.selected && this.selected.id)};
+    const names = {access: "CLAUDE CODE ACCESS", history: "HISTORY", logbook: "LOGBOOK", detail: "HISTORY ITEM #" + (this.selected && this.selected.id)};
     c.font = font(30, true);
     c.fillStyle = C.white;
     c.fillText(names[this.tab], PAD, 54);
@@ -137,7 +149,8 @@ export class SideDisplay extends Display {
     this.softLabels().forEach((label, i) => {
       if (!label) return;
       const x = W * (i + 0.5) / 5;
-      c.fillStyle = (i === 0 && this.tab === "access") || (i === 1 && this.tab !== "access") ? C.magenta : C.cyan;
+      const on = [this.tab === "access", this.tab === "history" || this.tab === "detail", this.tab === "logbook"][i];
+      c.fillStyle = on ? C.magenta : C.cyan;
       c.fillText(label, x, H - 26);
       c.fillRect(x - 1, H - 14, 2, 14);
     });

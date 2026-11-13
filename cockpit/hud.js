@@ -13,6 +13,7 @@ const KEYS = [
   ["F", "FMS: explain instructions and private watch list"],
   ["S", "Side display: access rules and history"],
   ["Esc", "Back to the panel"],
+  ["R", "Choose the flight route on the FMS"],
   ["H", "Show or hide this list"],
 ];
 
@@ -69,7 +70,7 @@ export class Hud {
 
   toggleHelp() { this.help.mesh.visible = !this.help.mesh.visible; }
 
-  notice(text, color, time) {
+  notice(text, color, time, seconds = 3) {
     const {ctx: c, w, h} = this.note;
     c.clearRect(0, 0, w, h);
     c.fillStyle = "rgba(3,6,10,0.85)"; c.fillRect(0, 0, w, h);
@@ -79,7 +80,7 @@ export class Hud {
     c.textAlign = "left";
     this.note.texture.needsUpdate = true;
     this.note.mesh.visible = true;
-    this.noteUntil = time + 3;
+    this.noteUntil = time + seconds;
   }
 
   resize(W, H) {

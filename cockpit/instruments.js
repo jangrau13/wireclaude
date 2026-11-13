@@ -161,14 +161,29 @@ export class NavDisplay extends Display {
     c.beginPath(); c.moveTo(cx, cy - 34); c.lineTo(cx, cy + 30); c.moveTo(cx - 36, cy - 4); c.lineTo(cx + 36, cy - 4);
     c.moveTo(cx - 14, cy + 26); c.lineTo(cx + 14, cy + 26); c.stroke();
     // data in the corners
+    const f = this.flight || {speed: 0, alt: 0, left: 0, to: ""};
     c.font = font(26, true); c.fillStyle = C.white;
-    c.fillText("GS 248  TAS 262", 30, 50);
+    c.fillText("GS " + Math.round(f.speed * 1.944) + "  ALT " + Math.round(f.alt * 3.281 / 100) * 100, 30, 50);
+    // Distance and time to the destination, and the local arrival time.
+    const s = f.timeLeft || 0, eta = new Date(Date.now() + s * 1000);
+    c.font = font(24, true); c.fillStyle = C.magenta;
+    c.fillText("DEST " + f.to, 30, 960);
+    c.fillStyle = C.white;
+    c.fillText(f.left > 0 ? Math.round(f.left / 1000) + " KM  ETE " + Math.floor(s / 3600) + "H" + String(Math.floor(s % 3600 / 60)).padStart(2, "0")
+                            + "  ETA " + String(eta.getHours()).padStart(2, "0") + ":" + String(eta.getMinutes()).padStart(2, "0")
+                          : f.phase === "PARKED" ? "ON THE GROUND" : "", 30, 996);
+    c.font = font(26, true);
     c.fillStyle = C.cyan; c.fillText("MAP", 30, 88);
     c.fillStyle = C.green; c.fillText("OVER " + (this.city || ""), 30, 126);
+    c.fillStyle = C.white; c.fillText("NEXT " + (this.next || ""), 30, 164);
     c.textAlign = "right"; c.fillStyle = C.white;
     c.fillText("QUEUE " + this.queue.length, 870, 50);
     c.fillStyle = clouds > 0.45 ? C.green : C.dim;
     c.fillText("WXR " + this.wxName, 870, 88);
+    c.fillStyle = C.cyan;
+    c.fillText("RTE " + (this.route || ""), 870, 126);
+    c.fillStyle = C.green;
+    c.fillText(f.phase || "", 870, 164);
     c.textAlign = "left";
   }
 }
